@@ -6,7 +6,7 @@ Welcome to Document Studio, a professional workspace to convert, view, and edit 
 
 Click the link below to download the standalone desktop application. No Python installation or setup required!
 
-### 📥 [Download DocumentStudio.exe (v1.0.0)](https://github.com/donana1/Dons-Document-Editor/releases/download/v1.0.0/Don.s.Document.Editor.exe)
+### 📥 [Download DocumentStudio.exe (v1.0.0)((https://github.com/donana1/Dons-Document-Editor/releases/download/v1.0.0/main.exe))
 
 > ⚠️ **Note for Windows Users (SmartScreen/Defender):** > Because this is an independent, newly compiled open-source application without an expensive digital certificate, Windows Defender or SmartScreen may trigger a warning ("Windows protected your PC") when downloading or running it. 
 > 
