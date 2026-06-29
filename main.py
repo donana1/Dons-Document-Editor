@@ -111,6 +111,7 @@ class DashboardApp(tk.Tk):
 
         self.strokes = []
         self.text_boxes = []
+        self.inline_edits = []  
         self.active_stroke = None
         self.active_text_idx = None
         self.dragging_text_idx = None
@@ -211,7 +212,8 @@ class DashboardApp(tk.Tk):
         for i, (label, cmd) in enumerate(actions):
             r, c = divmod(i, 2)
             btn = tk.Button(
-                grid, text=label, font=("Segoe UI", 11), bg=COLOR_PRIMARY, fg=COLOR_TEXT_LIGHT,
+                grid, text=label, font=("Segoe UI", 11), 
+                bg=COLOR_PRIMARY, fg=COLOR_TEXT_LIGHT,
                 activebackground=COLOR_SECONDARY, activeforeground=COLOR_TEXT_LIGHT, bd=0,
                 width=24, height=2, cursor="hand2", command=cmd
             )
@@ -266,8 +268,9 @@ class DashboardApp(tk.Tk):
         
         tk.Frame(bar, bg=COLOR_BORDER, width=1).pack(side="left", fill="y", padx=8, pady=6)
 
-        # Mode Toggles
+        # Mode Toggles (With Text Modifier Included)
         tk.Radiobutton(bar, text="Pointer Tool", font=("Segoe UI", 10), value="pointer", variable=self.mode, bg="white", selectcolor="white", fg=COLOR_TEXT_DARK).pack(side="left", padx=4)
+        tk.Radiobutton(bar, text="Text Modifier", font=("Segoe UI", 10), value="modifier", variable=self.mode, bg="white", selectcolor="white", fg=COLOR_TEXT_DARK).pack(side="left", padx=4)
         tk.Radiobutton(bar, text="Draw Pen", font=("Segoe UI", 10), value="pen", variable=self.mode, bg="white", selectcolor="white", fg=COLOR_TEXT_DARK).pack(side="left", padx=4)
         tk.Radiobutton(bar, text="Eraser", font=("Segoe UI", 10), value="eraser", variable=self.mode, bg="white", selectcolor="white", fg=COLOR_TEXT_DARK).pack(side="left", padx=4)
 
@@ -348,6 +351,10 @@ class DashboardApp(tk.Tk):
         moving_boxes = self.text_boxes.pop(src_idx)
         self.text_boxes.insert(dest_idx, moving_boxes)
 
+        if hasattr(self, 'inline_edits') and len(self.inline_edits) > src_idx:
+            moving_inlines = self.inline_edits.pop(src_idx)
+            self.inline_edits.insert(dest_idx, moving_inlines)
+
         self.page_idx = dest_idx
 
         self.render_page()
@@ -383,6 +390,7 @@ class DashboardApp(tk.Tk):
         self.page_idx = 0
         self.strokes = [[] for _ in range(len(self.doc))]
         self.text_boxes = [[] for _ in range(len(self.doc))]
+        self.inline_edits = [[] for _ in range(len(self.doc))]
         self.render_page()
         self.render_thumbnails()
 
@@ -399,6 +407,15 @@ class DashboardApp(tk.Tk):
         self._draw_overlays()
 
     def _draw_overlays(self):
+        if hasattr(self, 'inline_edits') and len(self.inline_edits) > self.page_idx:
+            for edit in self.inline_edits[self.page_idx]:
+                rx0, ry0, rx1, ry1 = [v * self.scale for v in edit["bbox"]]
+                self.canvas.create_rectangle(rx0, ry0, rx1, ry1, fill="white", outline="white")
+                self.canvas.create_text(
+                    rx0, ry0, anchor="nw", text=edit["text"],
+                    font=(edit.get("font", "Arial"), int(edit.get("size", 11) * self.scale)), fill="black"
+                )
+
         for s in self.strokes[self.page_idx]:
             pts = s["points"]
             if len(pts) < 2:
@@ -437,6 +454,48 @@ class DashboardApp(tk.Tk):
             return
         x, y = event.x, event.y
         idx = self.page_idx
+
+        if self.mode.get() == "modifier":
+            page = self.doc[idx]
+            native_x, native_y = x / self.scale, y / self.scale
+            text_page = page.get_text("words") 
+            matched_word = None
+            for w in text_page:
+                x0, y0, x1, y1, word_str, block_no, line_no, word_no = w
+                if x0 <= native_x <= x1 and y0 <= native_y <= y1:
+                    matched_word = w
+                    break
+            
+            if matched_word:
+                x0, y0, x1, y1, word_str, _, _, _ = matched_word
+                if self.edit_widget: self.edit_widget.destroy()
+                
+                rx0, ry0 = x0 * self.scale, y0 * self.scale
+                rw, rh = (x1 - x0) * self.scale, (y1 - y0) * self.scale
+                
+                txt = tk.Text(self.canvas, bd=0, wrap="none", font=("Arial", max(9, int(rh * 0.75))), highlightbackground=COLOR_PRIMARY, highlightthickness=1)
+                txt.insert("1.0", word_str)
+                txt.place(x=rx0, y=ry0, width=max(60, rw + 20), height=rh + 4)
+                txt.focus_set()
+                self.edit_widget = txt
+                
+                def save_inline_modification(_e=None):
+                    new_val = txt.get("1.0", "end-1c").strip()
+                    txt.destroy()
+                    self.edit_widget = None
+                    if new_val != word_str:
+                        self.inline_edits[idx].append({
+                            "bbox": (x0, y0, x1, y1),
+                            "text": new_val,
+                            "font": "Arial",
+                            "size": (y1 - y0) * 0.85
+                        })
+                    self.render_page()
+
+                txt.bind("<FocusOut>", save_inline_modification)
+                txt.bind("<Escape>", lambda _e: [txt.destroy(), setattr(self, 'edit_widget', None)])
+                txt.bind("<Return>", save_inline_modification)
+            return
 
         if self.pending_add_text:
             self.pending_add_text = False
@@ -518,6 +577,7 @@ class DashboardApp(tk.Tk):
         if self.edit_widget is not None:
             self.edit_widget.destroy()
         b = self.text_boxes[self.page_idx][idx]
+        
         txt = tk.Text(self.canvas, bd=0, wrap="word", font=(b.get("font", "Arial"), 11), highlightbackground=COLOR_SECONDARY, highlightthickness=1)
         txt.insert("1.0", b.get("text", ""))
         txt.place(x=b["x"], y=b["y"], width=b["w"], height=b["h"])
@@ -561,6 +621,7 @@ class DashboardApp(tk.Tk):
     def render_thumbnails(self):
         for w in self.thumb_inner.winfo_children():
             w.destroy()
+    
         self.thumb_refs = []
         self.thumb_frames = []
         if not self.doc:
@@ -613,6 +674,13 @@ class DashboardApp(tk.Tk):
             return
         for i in range(len(self.doc)):
             page = self.doc[i]
+            
+            if hasattr(self, 'inline_edits') and len(self.inline_edits) > i:
+                for edit in self.inline_edits[i]:
+                    x0, y0, x1, y1 = edit["bbox"]
+                    page.draw_rect(fitz.Rect(x0, y0, x1, y1), color=(1, 1, 1), fill=(1, 1, 1))
+                    page.insert_text(fitz.Point(x0, y1 - 2), edit["text"], fontsize=edit["size"], color=(0, 0, 0))
+
             for s in self.strokes[i]:
                 rgb = tuple(int(s["color"].lstrip("#")[j : j + 2], 16) / 255 for j in (0, 2, 4))
                 w = max(0.2, s["width"] / self.scale)
